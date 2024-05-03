@@ -1,0 +1,143 @@
+// MessageConsumer_textware
+package org.example;
+
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.DeliverCallback;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.List;
+
+public class MessageConsumer_textware {
+
+    private static final String SMS_OUTBOX = "sms_outbox";
+    private static final String SMS_GATEWAY_URL = "https://sms.textware.lk:5001/sms/send_sms.php";
+
+    public static void main(String[] args) throws Exception {
+        ConnectionFactory factory = new ConnectionFactory();
+        factory.setHost("localhost");
+
+        List<String> testNumbers = Arrays.asList("+9471130681", "94711306818", "+94711306818", "711306818", "0711306818", "+94783227685", "94783227685", "783227685", "0783227685", "+94710168151", "94710168151", "710168151", "0710168151", "+94770273653", "94770273653", "770273653", "0770273653");
+
+        try (Connection connection = factory.newConnection();
+             Channel channel = connection.createChannel()) {
+            channel.queueDeclare(SMS_OUTBOX, true, false, false, null);
+
+            // Set up the consumer
+            DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+                String fullMessage = new String(delivery.getBody(), StandardCharsets.UTF_8);
+                System.out.println("Received message: " + fullMessage);
+
+                // Extract the message before the mobile number
+                String message = fullMessage.substring(0, fullMessage.indexOf("MOBILE:")).trim();
+
+                // Extract mobile number from the message
+                String mobileNumber = fullMessage.substring(fullMessage.indexOf("MOBILE:") + 7).trim();
+
+                // Check if the mobile number is one of the test numbers
+                if (testNumbers.contains(mobileNumber)) {
+                    // Send SMS
+                    sendSMS(message, mobileNumber, channel);
+                }
+
+                // Acknowledge the message
+                channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+            };
+
+            // Consume msg
+            channel.basicConsume(SMS_OUTBOX, false, deliverCallback, consumerTag -> {
+            });
+
+            System.out.println("Waiting for messages. To exit press Ctrl+C");
+            // Keep the program running to receive messages
+            new BufferedReader(new InputStreamReader(System.in)).readLine();
+        }
+    }
+
+    private static void sendSMS(String message, String mobileNumber, Channel channel) {
+        try {
+            // URL encode the message
+            String encodedMessage = URLEncoder.encode(message, StandardCharsets.UTF_8);
+
+            // SMS API URL with the required parameters
+            String username = "lec_l207";
+            String password = "Atg2Vju0gDUq";
+            String src = "TWTEST";
+            String dr = "1";
+            String lan = "u";
+            String smsApiUrl = SMS_GATEWAY_URL +
+                    "?username=" + URLEncoder.encode(username, StandardCharsets.UTF_8) +
+                    "&password=" + URLEncoder.encode(password, StandardCharsets.UTF_8) +
+                    "&src=" + URLEncoder.encode(src, StandardCharsets.UTF_8) +
+                    "&dst=" + URLEncoder.encode(mobileNumber, StandardCharsets.UTF_8) +
+                    "&msg=" + encodedMessage +
+                    "&dr=" + URLEncoder.encode(dr, StandardCharsets.UTF_8) +
+                    "&lan=" + URLEncoder.encode(lan, StandardCharsets.UTF_8);
+
+            // URL object
+            URL url = new URL(smsApiUrl);
+
+            // connection to the URL
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+
+            // Set additional headers
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            connection.setRequestProperty("Authorization", "Basic " + getAuthToken());
+
+            // Set req
+            connection.setRequestMethod("GET");
+
+            // Get response
+            int responseCode = connection.getResponseCode();
+            System.out.println("SMS sent. Response code: " + responseCode);
+
+            // read response
+            StringBuilder response = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                    System.out.println("SMS gateway response: " + line);
+                }
+            }
+
+            // msg count
+            int messageCount = 0;
+            messageCount++;
+
+            // Close the connection
+            connection.disconnect();
+
+            // Log message count
+            System.out.println("Total messages sent to the consumers: " + messageCount);
+
+            // Prepare data for the new queue
+            String dataForNewQueue = "Message: " + message + ", Mobile Number: " + mobileNumber + ", Gateway Response: " + response + ", Response Code: " + responseCode;
+
+            // Declare a new queue to store the response
+            String DB_WRITE_QUEUE = "db_write_queue";
+            channel.queueDeclare(DB_WRITE_QUEUE, true, false, false, null);
+
+            // Publish the data to the new queue
+            channel.basicPublish("", DB_WRITE_QUEUE, null, dataForNewQueue.getBytes(StandardCharsets.UTF_8));
+            System.out.println("Data published to database write queue: " + dataForNewQueue);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static String getAuthToken() {
+
+        String auth = "lec_l207" + ":" + "Atg2Vju0gDUq";
+        return Base64.getEncoder().encodeToString(auth.getBytes());
+    }
+}
