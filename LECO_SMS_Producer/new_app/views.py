@@ -89,7 +89,7 @@ def publish_to_rabbitmq(request):
             print(f"MessageCode: {messageCode} was sent to the queue: {routing_key}")
 
             connection.close()
-            logger.warning('Message published to RabbitMQ: %s', message)
+            logger.warning('Message published to RabbitMQ: %s, Queue: %s', message, routing_key)
             return JsonResponse({"status": "Message published to RabbitMQ"})
         else:
             customer_message = {'from_number': from_number, 'to_number': to_number, 'body': body}
