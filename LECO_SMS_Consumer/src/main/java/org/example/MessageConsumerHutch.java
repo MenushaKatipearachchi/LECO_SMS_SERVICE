@@ -40,9 +40,6 @@ public class MessageConsumerHutch {
 
         try (Connection connection = factory.newConnection();
                 Channel channel = connection.createChannel()) {
-            System.out.println("Declaring queue: " + Constants.SMS_OUTBOX);
-            channel.queueDeclare(Constants.SMS_OUTBOX, true, false, false, null);
-            System.out.println("Queue declared successfully.");
 
             // Set up the consumer
             DeliverCallback deliverCallback = (consumerTag, delivery) -> {
@@ -93,8 +90,13 @@ public class MessageConsumerHutch {
             };
 
             // Consume msg
-            System.out.println("Starting to consume messages from queue: " + Constants.SMS_OUTBOX);
-            channel.basicConsume(Constants.SMS_OUTBOX, false, deliverCallback, consumerTag -> {
+            System.out.println("Starting to consume messages from queues: " + Constants.HIGH_PROCESSING + ", "
+                    + Constants.MEDIUM_PROCESSING + ", " + Constants.LOW_PROCESSING);
+            channel.basicConsume(Constants.HIGH_PROCESSING, false, deliverCallback, consumerTag -> {
+            });
+            channel.basicConsume(Constants.MEDIUM_PROCESSING, false, deliverCallback, consumerTag -> {
+            });
+            channel.basicConsume(Constants.LOW_PROCESSING, false, deliverCallback, consumerTag -> {
             });
 
             System.out.println("Waiting for messages. To exit press Ctrl+C");

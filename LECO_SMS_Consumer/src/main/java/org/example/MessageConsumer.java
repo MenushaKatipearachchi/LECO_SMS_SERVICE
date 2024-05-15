@@ -5,6 +5,8 @@ import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
 
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -38,20 +40,21 @@ public class MessageConsumer {
 
         try (Connection connection = factory.newConnection();
                 Channel channel = connection.createChannel()) {
-            channel.queueDeclare(Constants.SMS_OUTBOX, true, false, false, null);
 
             // Consumer set up
-            DeliverCallback deliverCallback = createDeliverCallback(channel);
+            DeliverCallback deliverCallbackHigh = createDeliverCallback(channel, Constants.HIGH_PROCESSING);
+            DeliverCallback deliverCallbackMedium = createDeliverCallback(channel, Constants.MEDIUM_PROCESSING);
+            DeliverCallback deliverCallbackLow = createDeliverCallback(channel, Constants.LOW_PROCESSING);
 
             // Consume msg
             channel.basicQos(3);
-            channel.basicConsume(Constants.HIGH_PROCESSING, false, deliverCallback, consumerTag -> {
+            channel.basicConsume(Constants.HIGH_PROCESSING, false, deliverCallbackHigh, consumerTag -> {
             });
             channel.basicQos(2);
-            channel.basicConsume(Constants.MEDIUM_PROCESSING, false, deliverCallback, consumerTag -> {
+            channel.basicConsume(Constants.MEDIUM_PROCESSING, false, deliverCallbackMedium, consumerTag -> {
             });
             channel.basicQos(1);
-            channel.basicConsume(Constants.LOW_PROCESSING, false, deliverCallback, consumerTag -> {
+            channel.basicConsume(Constants.LOW_PROCESSING, false, deliverCallbackLow, consumerTag -> {
             });
 
             System.out.println("Waiting for messages. To exit press Ctrl+C");
@@ -63,7 +66,7 @@ public class MessageConsumer {
         }
     }
 
-    private DeliverCallback createDeliverCallback(Channel channel) {
+    private DeliverCallback createDeliverCallback(Channel channel, String queueName) {
         return (consumerTag, delivery) -> {
             String fullMessage = new String(delivery.getBody(), StandardCharsets.UTF_8);
             System.out.println("Received message: " + fullMessage);
@@ -72,52 +75,60 @@ public class MessageConsumer {
                 // Acknowledge the message
                 channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
 
-                // Parse the message to get the required parameters
-                JSONObject json = parseMessage(fullMessage);
-                String fromNumber = json.getString("from_number");
-                String body = json.getString("body");
-                Integer call_type = json.getInt("call_type");
-                String message_template = json.getString("message_template");
-                String accountNo = null;
-                String api = null;
+                // Check if the message is in JSON format
+                if (isJSONValid(fullMessage)) {
+                    // Parse the message to get the required parameters
+                    JSONObject json = parseMessage(fullMessage);
+                    String fromNumber = json.getString("from_number");
+                    String body = json.getString("body");
+                    Integer call_type = json.getInt("call_type");
+                    String message_template = json.getString("message_template");
+                    String accountNo = null;
+                    String api = null;
 
-                // Split the body into messageCode
-                String[] parts = body.split(" ");
-                String messageCode = parts[0]; // ACB or INF ...etc
-                
-                // if the message code has call type 1 then it is a getAPI call, if
-                // it has a call type 2 then it is a postAPI call, if
-                // it has a call type 3 then it is a direct call
+                    // Split the body into messageCode
+                    String[] parts = body.split(" ");
+                    String messageCode = parts[0]; // ACB or INF ...etc
 
-                // make the result accept a string or a list of strings
-                Object result = null;
+                    // if the message code has call type 1 then it is a getAPI call, if
+                    // it has a call type 2 then it is a postAPI call, if
+                    // it has a call type 3 then it is a direct call
 
-                if (call_type == 1) {
-                    accountNo = parts[1]; // Account number
-                    api = json.getString("api");
+                    // make the result accept a string or a list of strings
+                    Object result = null;
 
-                    // GetAPI
-                    List<String> feedback = getAPI(messageCode, api, fromNumber, accountNo, message_template);
-                    result = feedback;
-                } else if (call_type == 2) {
-                    // PstAPI
-                    postAPI(fullMessage, fromNumber);
-                } else if (call_type == 3) {
-                    // Direct call
-                    String directResult = directCall(message_template, fromNumber, body, messageCode);
-                    result = directResult;
+                    if (call_type == 1) {
+                        accountNo = parts[1]; // Account number
+                        api = json.getString("api");
+
+                        // GetAPI
+                        List<String> feedback = getAPI(messageCode, api, fromNumber, accountNo, message_template);
+                        result = feedback;
+                    } else if (call_type == 2) {
+                        // PstAPI
+                        postAPI(fullMessage, fromNumber);
+                    } else if (call_type == 3) {
+                        // Direct call
+                        String directResult = directCall(message_template, fromNumber, body, messageCode);
+                        result = directResult;
+                    }
+
+                    // Check the type of result before publishing
+                    if (result instanceof String) {
+                        channel.basicPublish("", queueName, null,
+                                ((String) result).getBytes(StandardCharsets.UTF_8));
+                    } else if (result instanceof List) {
+                        // Convert the list to a string before publishing
+                        String listResult = String.join(",", (List<String>) result);
+                        channel.basicPublish("", queueName, null, listResult.getBytes(StandardCharsets.UTF_8));
+                    }
+                    System.out.println("Published message to " + queueName);
+
+                } else {
+                    // If the message is not in JSON format, publish it directly to the queue
+                    channel.basicPublish("", queueName, null, fullMessage.getBytes(StandardCharsets.UTF_8));
+                    System.out.println("Published message to " + queueName);
                 }
-
-                // Check the type of result before publishing
-                if (result instanceof String) {
-                    channel.basicPublish("", Constants.SMS_OUTBOX, null,
-                            ((String) result).getBytes(StandardCharsets.UTF_8));
-                } else if (result instanceof List) {
-                    // Convert the list to a string before publishing
-                    String listResult = String.join(",", (List<String>) result);
-                    channel.basicPublish("", Constants.SMS_OUTBOX, null, listResult.getBytes(StandardCharsets.UTF_8));
-                }
-                System.out.println("Published message to " + Constants.SMS_OUTBOX);
 
             } catch (IOException | RuntimeException e) {
                 System.out.println("Error processing message: " + e.getMessage());
@@ -126,7 +137,19 @@ public class MessageConsumer {
                 channel.basicReject(delivery.getEnvelope().getDeliveryTag(), false);
             }
         };
+    }
 
+    public boolean isJSONValid(String test) {
+        try {
+            new JSONObject(test);
+        } catch (JSONException ex) {
+            try {
+                new JSONArray(test);
+            } catch (JSONException ex1) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private JSONObject parseMessage(String fullMessage) {
@@ -222,7 +245,7 @@ public class MessageConsumer {
                 e.printStackTrace();
             }
         }
-        
+
         return message_template + " MOBILE: " + fromNumber;
     }
 
