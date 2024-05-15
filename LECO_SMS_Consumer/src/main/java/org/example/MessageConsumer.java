@@ -45,13 +45,10 @@ public class MessageConsumer {
             DeliverCallback deliverCallback = createDeliverCallback(channel);
 
             // Consume msg
-            channel.basicQos(3);
             channel.basicConsume(Constants.HIGH_PROCESSING, false, deliverCallback, consumerTag -> {
             });
-            channel.basicQos(2);
             channel.basicConsume(Constants.MEDIUM_PROCESSING, false, deliverCallback, consumerTag -> {
             });
-            channel.basicQos(1);
             channel.basicConsume(Constants.LOW_PROCESSING, false, deliverCallback, consumerTag -> {
             });
 
