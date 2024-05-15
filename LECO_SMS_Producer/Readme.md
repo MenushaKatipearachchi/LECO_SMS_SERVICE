@@ -5,5 +5,6 @@ Use the below to set up the project and run.
 3. python -m pip install --upgrade pip
 4. python -m pip install django
 5. python -m pip install pika
-6. python manage.py migrate
-7. python manage.py runserver
+6. python -m pip install python-dotenv
+7. python -m pip install oracledb
+8. python manage.py runserver
