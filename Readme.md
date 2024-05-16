@@ -1,3 +1,5 @@
+### Consumer
+
 ### Producer
 
 To set up the project and run it locally, follow these steps:
