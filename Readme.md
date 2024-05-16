@@ -28,7 +28,7 @@ python -m pip install oracledb
 python manage.py runserver
 ```
 
-Once the server is running, you can access the producer endpoint at [https:////127.0.0.1:8000/smsapi/](https:////127.0.0.1:8000/smsapi/). Use a POST request with the following JSON payload to produce a message:
+Once the server is running, you can access the producer endpoint at [https://127.0.0.1:8000/smsapi/](https://127.0.0.1:8000/smsapi/). Use a POST request with the following JSON payload to produce a message:
 
 ```json
 {
