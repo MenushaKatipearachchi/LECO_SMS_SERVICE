@@ -9,7 +9,11 @@ package org.example;
 import oracle.jdbc.OracleTypes;
 
 import javax.swing.*;
+
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.sql.*;
+import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -23,14 +27,14 @@ public class DBConnect_DB {
     /**
      * User Id
      */
-    private String strUsername = "DEVADMIN";
+    private String strUsername;
     /**
      * Password
      */
-    private String strPassword = "DEV";
+    private String strPassword;
     public static final String SELECTEDSCEMA = "UBSNU";
-    public static final String strInputIP = "10.20.0.32";
-    public static final String strInputSID = "LECOUAT";
+    public static String strInputIP;
+    public static String strInputSID;
     /**
      * USER
      */
@@ -43,9 +47,7 @@ public class DBConnect_DB {
     /**
      * URL giving the location of the database
      */
-
-    private static final String DATABASE_URL = "jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST="
-            + strInputIP + ")(PORT=1521)))(CONNECT_DATA=(SID=" + strInputSID + ")(SERVER=DEDICATED))) ";
+    private static String DATABASE_URL;
     /**
      * Connection to the database
      */
@@ -57,38 +59,31 @@ public class DBConnect_DB {
     /**
      * Tag to identify Billing System Users
      */
-    private static final String BILLING_USER_NAME_TAG = "UB_";
+    private static final String BILLING_user_TAG = "UB_";
     private Date sysDate;
     private Date appDate;
 
-    public synchronized boolean setConnection(String strUser, String strPwd) throws Exception {
+    public DBConnect_DB() {
+        Properties prop = new Properties();
+        try {
+            prop.load(getClass().getClassLoader().getResourceAsStream("db.properties"));
+            this.strUsername = prop.getProperty("username");
+            this.strPassword = prop.getProperty("password");
+            strInputIP = prop.getProperty("ip");
+            strInputSID = prop.getProperty("sid");
+            DATABASE_URL = prop.getProperty("url").replace("${ip}", strInputIP).replace("${sid}", strInputSID);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
+    public synchronized boolean setConnection(String strUser, String strPwd) throws Exception {
         boolean gotConnected = false;
-        // ProgressBarBill PB = new ProgressBarBill();
         try {
             String strDBUrl = DATABASE_URL;
-            strUsername = "DEVADMIN";
-            strPassword = "DEV";
-            // if (user != null) {
-            // thisUser = user;
-            // }
-            // if (strUser.equals("")) {
-            // strUsername = "UBSNU";
-            // }
-            // if (strPwd.equals("")) {
-            // strPassword = "UBSNU";
-            // }
-
-            // TK1 If the user is the schema owner don't add 'BL_'
-            strOracleUsername = BILLING_USER_NAME_TAG + strUsername;
-
+            strOracleUsername = BILLING_user_TAG + strUsername;
             Class.forName(DATABASE_DRIVER);
-            // UPODATED AS UBSNU
-            // System.out.println(strDBUrl + "|" + this.strOracleUsername + "|" +
-            // this.strPassword);
             System.out.println(strDBUrl + "|" + strUsername + "|" + strPassword);
-            // TK V1.5 ObtainedConnection = DriverManager.getConnection(strDBUrl,
-            // this.strUsername, this.strPassword);
             LECOConnection = DriverManager.getConnection(strDBUrl, strUsername, strPassword);
             if ((this.LECOConnection == null) || (this.LECOConnection.isClosed())) {
                 gotConnected = false;
@@ -96,15 +91,10 @@ public class DBConnect_DB {
                 gotConnected = true;
             }
             if (gotConnected) {
-
-                setCurrentSchema("ESMS");// strBranchName);
-
+                setCurrentSchema("ESMS");
             }
-
             DatabaseMetaData meta = LECOConnection.getMetaData();
-
         } catch (Exception instantiationError) {
-            // instantiationError.printStackTrace();
             JOptionPane.showMessageDialog(null, instantiationError.toString(), "Connection", JOptionPane.ERROR_MESSAGE);
             LECOConnection = null;
         }
@@ -112,7 +102,6 @@ public class DBConnect_DB {
     }
 
     public java.sql.Connection getConnection() {
-
         java.sql.Connection con = null;
         try {
             if (this.LECOConnection == null) {
@@ -120,26 +109,19 @@ public class DBConnect_DB {
             } else {
                 con = this.LECOConnection;
             }
-
             if (this.LECOConnection.isClosed()) {
                 con = reConnect();
             } else {
                 con = this.LECOConnection;
             }
-
         } catch (Exception getConnectionEx) {
             System.err.println("  getConnectionEx :   " + getConnectionEx);
         }
-
-        // con = this.ObtainedConnection ;
-        // to check users login date with system date SP27072012
-
         return con;
     }
 
     private java.sql.Connection reConnect() {
         try {
-
             System.out.println("reConnect....");
             setConnection(this.strUsername, this.strPassword);
         } catch (Exception ReConnectionExceptin) {
