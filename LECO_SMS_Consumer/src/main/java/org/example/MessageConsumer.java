@@ -1,13 +1,6 @@
 package org.example;
 
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.Connection;
-import com.rabbitmq.client.ConnectionFactory;
-import com.rabbitmq.client.DeliverCallback;
-
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import com.rabbitmq.client.*;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -20,6 +13,10 @@ import java.sql.SQLException;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class MessageConsumer {
     private final DBConnect dbConnect;
@@ -41,32 +38,38 @@ public class MessageConsumer {
         try (Connection connection = factory.newConnection();
                 Channel channel = connection.createChannel()) {
 
-            // Consumer set up
-            DeliverCallback deliverCallbackHigh = createDeliverCallback(channel, Constants.HIGH_PROCESSING);
-            DeliverCallback deliverCallbackMedium = createDeliverCallback(channel, Constants.MEDIUM_PROCESSING);
-            DeliverCallback deliverCallbackLow = createDeliverCallback(channel, Constants.LOW_PROCESSING);
+            // Declare queues with priority
+            channel.queueDeclare(Constants.HIGH_PROCESSING, true, false, false,
+                    Collections.singletonMap("x-max-priority", 3));
+            channel.queueDeclare(Constants.MEDIUM_PROCESSING, true, false, false,
+                    Collections.singletonMap("x-max-priority", 3));
+            channel.queueDeclare(Constants.LOW_PROCESSING, true, false, false,
+                    Collections.singletonMap("x-max-priority", 3));
 
-            // Consume msg
-            channel.basicQos(3);
-            channel.basicConsume(Constants.HIGH_PROCESSING, false, deliverCallbackHigh, consumerTag -> {
-            });
-            channel.basicQos(2);
-            channel.basicConsume(Constants.MEDIUM_PROCESSING, false, deliverCallbackMedium, consumerTag -> {
-            });
+            // Set the QoS for the channel
             channel.basicQos(1);
-            channel.basicConsume(Constants.LOW_PROCESSING, false, deliverCallbackLow, consumerTag -> {
+
+            // Consumer set up
+            DeliverCallback deliverCallback = createDeliverCallback(channel);
+
+            // Consume messages from all queues
+            channel.basicConsume(Constants.HIGH_PROCESSING, false, deliverCallback, consumerTag -> {
+            });
+            channel.basicConsume(Constants.MEDIUM_PROCESSING, false, deliverCallback, consumerTag -> {
+            });
+            channel.basicConsume(Constants.LOW_PROCESSING, false, deliverCallback, consumerTag -> {
             });
 
             System.out.println("Waiting for messages. To exit press Ctrl+C");
             // Keep the program running to receive messages
             new BufferedReader(new InputStreamReader(System.in)).readLine();
-        } catch (IOException | RuntimeException | TimeoutException e) {
+        } catch (IOException | TimeoutException e) {
             System.out.println("Error setting up consumer: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    private DeliverCallback createDeliverCallback(Channel channel, String queueName) {
+    private DeliverCallback createDeliverCallback(Channel channel) {
         return (consumerTag, delivery) -> {
             String fullMessage = new String(delivery.getBody(), StandardCharsets.UTF_8);
             System.out.println("Received message: " + fullMessage);
@@ -81,7 +84,7 @@ public class MessageConsumer {
                     JSONObject json = parseMessage(fullMessage);
                     String fromNumber = json.getString("from_number");
                     String body = json.getString("body");
-                    Integer call_type = json.getInt("call_type");
+                    int call_type = json.getInt("call_type");
                     String message_template = json.getString("message_template");
                     String accountNo = null;
                     String api = null;
@@ -115,19 +118,21 @@ public class MessageConsumer {
 
                     // Check the type of result before publishing
                     if (result instanceof String) {
-                        channel.basicPublish("", queueName, null,
+                        channel.basicPublish("", delivery.getEnvelope().getRoutingKey(), null,
                                 ((String) result).getBytes(StandardCharsets.UTF_8));
                     } else if (result instanceof List) {
                         // Convert the list to a string before publishing
                         String listResult = String.join(",", (List<String>) result);
-                        channel.basicPublish("", queueName, null, listResult.getBytes(StandardCharsets.UTF_8));
+                        channel.basicPublish("", delivery.getEnvelope().getRoutingKey(), null,
+                                listResult.getBytes(StandardCharsets.UTF_8));
                     }
-                    System.out.println("Published message to " + queueName);
+                    System.out.println("Published message to " + delivery.getEnvelope().getRoutingKey());
 
                 } else {
                     // If the message is not in JSON format, publish it directly to the queue
-                    channel.basicPublish("", queueName, null, fullMessage.getBytes(StandardCharsets.UTF_8));
-                    System.out.println("Published message to " + queueName);
+                    channel.basicPublish("", delivery.getEnvelope().getRoutingKey(), null,
+                            fullMessage.getBytes(StandardCharsets.UTF_8));
+                    System.out.println("Published message to " + delivery.getEnvelope().getRoutingKey());
                 }
 
             } catch (IOException | RuntimeException e) {
