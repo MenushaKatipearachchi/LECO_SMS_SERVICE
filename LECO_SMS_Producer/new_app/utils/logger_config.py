@@ -1,12 +1,14 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler
+from logging import StreamHandler
 
 # Create a custom logger
 logger = logging.getLogger(__name__)
 
 # handlers
-c_handler = logging.StreamHandler()
-f_handler = TimedRotatingFileHandler('logs/sms.log', when="midnight", interval=1, backupCount=90)
+c_handler = StreamHandler()
+f_handler = TimedRotatingFileHandler('logs/sms.log', when="midnight", interval=1, backupCount=90, encoding='utf-8')  # Also set the file handler to use utf-8
+
 c_handler.setLevel(logging.WARNING)
 f_handler.setLevel(logging.WARNING)
 

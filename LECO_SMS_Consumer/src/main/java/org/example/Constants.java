@@ -7,6 +7,7 @@ public class Constants {
 
     // RabbitMQ queues
     public static final String DB_WRITE_QUEUE = "db_write_queue";
+    public static final String INBOX_DB_WRITE = "inbox_db_write";
     public static final String SMS_OUTBOX = "sms_outbox";
     public static final String MEDIUM_PROCESSING = "medium_processing";
     public static final String LOW_PROCESSING = "low_processing";
