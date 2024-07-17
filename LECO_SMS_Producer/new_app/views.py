@@ -122,8 +122,6 @@ def publish_message(request):
                 logger.warning('Message published to RabbitMQ: %s, Queue: %s', message, routing_key)
                 responses.append({"status": f"Message published to RabbitMQ queue: {routing_key}"})
             else:
-                customer_message = {'from_number': from_number, 'to_number': to_number, 'body': body}
-                logger.warning(f"Customer's message: {customer_message}")
                 logger.warning(f"Message code \"{messageCode}\" does not exist")
                 responses.append({"status": "Message code does not exist"})
         except Exception as e:
