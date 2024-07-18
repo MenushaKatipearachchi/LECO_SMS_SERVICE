@@ -1,0 +1,6 @@
+django
+pika
+python-dotenv
+oracledb
+CherryPy
+daphne

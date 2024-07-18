@@ -26,8 +26,15 @@ python -m pip install python-dotenv
 # Install Oracle Database driver (replace `oracledb` with the appropriate package name if using a different driver)
 python -m pip install oracledb
 
+# Install these two to start a production server that auto reloads
+python -m pip install CherryPy
+python -m pip install daphne
+
 # Run the Django development server
 python manage.py runserver
+
+# Run the Django production server
+python cherrypy_server.py
 ```
 
 Once the server is running, you can access the producer endpoint at [https://127.0.0.1:8000/smsapi/](https://127.0.0.1:8000/smsapi/). Use a POST request with the following JSON payload to produce a message:
