@@ -11,8 +11,11 @@ from django.core.exceptions import ValidationError
 
 from .utils.logger_config import logger
 from .get_message_codes import get_all_msg_codes
+from .get_to_numbers import get_allowed_to_numbers
 
 msg_codes = get_all_msg_codes()
+msg_codes = get_all_msg_codes()
+allowed_to_numbers = [number['to_number'] for number in get_allowed_to_numbers()]
 
 def check_msg_code_exists(msg_code):
     global msg_codes
@@ -44,8 +47,8 @@ def publish_message(request):
         if not from_number or not to_number:
             raise ValidationError('Both "from" and "to" fields are required')
         
-        if to_number not in ['1910', '94714643643']:
-            raise ValidationError('The "to" number must be either 1910 or 94714643643')
+        if to_number not in allowed_to_numbers:
+            raise ValidationError(f'The "to" number must be one of the allowed numbers: {allowed_to_numbers}')
         
         message = {
                 'from_number': from_number,
