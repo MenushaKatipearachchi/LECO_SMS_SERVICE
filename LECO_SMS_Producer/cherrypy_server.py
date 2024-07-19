@@ -2,6 +2,7 @@ import os
 import sys
 import cherrypy
 from django.core.wsgi import get_wsgi_application
+import signal
 
 # Set the Django settings module
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'rabbitmq_project.settings')
@@ -39,6 +40,15 @@ server.thread_pool = 30
 
 # Subscribe this server
 server.subscribe()
+
+def signal_handler(signum, frame):
+    # Stop the CherryPy engine
+    cherrypy.engine.exit()
+    # Additional cleanup can be done here if necessary
+    sys.exit(0)
+
+# Register the signal handler for SIGINT (Ctrl+C)
+signal.signal(signal.SIGINT, signal_handler)
 
 # Start the CherryPy server engine
 cherrypy.engine.start()
