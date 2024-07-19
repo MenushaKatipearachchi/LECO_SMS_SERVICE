@@ -44,6 +44,9 @@ def publish_message(request):
         if not from_number or not to_number:
             raise ValidationError('Both "from" and "to" fields are required')
         
+        if to_number not in ['1910', '94714643643']:
+            raise ValidationError('The "to" number must be either 1910 or 94714643643')
+        
         message = {
                 'from_number': from_number,
                 'to_number': to_number,
