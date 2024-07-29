@@ -204,7 +204,7 @@ public class MessageConsumerHutch {
 
         // Constructing the request body with username and password
         RequestBody requestBody = RequestBody.create(MediaType.parse("application/json"),
-                "{\"username\": \"" + "kadvsperera@gmail.com" + "\", \"password\": \"" + "gm$#21JH" + "\"}");
+                "{\"username\": \"" + "ekettipearachchi@gmail.com" + "\", \"password\": \"" + "cp@^68CM" + "\"}");
 
         // Build the request with appropriate headers and body
         Request request = new Request.Builder()
