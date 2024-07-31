@@ -137,7 +137,6 @@ public class MessageConsumer {
             URL url = new URL(api + accountNumber);
             // Create a connection
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-
             conn.setRequestMethod("GET");
 
             // Get the response code
@@ -155,17 +154,14 @@ public class MessageConsumer {
                         // Get each parameter separately
                         String accountNo = chatbotAccountData.getString("accountNo").trim();
                         String cusName = chatbotAccountData.getString("name").trim();
-                        String accBal = chatbotAccountData.getString("accountBalance").trim();
-                        String billVal = chatbotAccountData.getString("lastBillAmount").trim();
-                        String billReadDate = chatbotAccountData.getString("lastBillDate").trim();
+                        double accBal = chatbotAccountData.getDouble("accountBalance");
+                        String accBalFormatted = String.format("%.2f(%s)", Math.abs(accBal), accBal >= 0 ? "Dr" : "Cr");
                         String paymentAmt = chatbotAccountData.getString("lastPayment").trim();
                         String paymentReadDate = chatbotAccountData.getString("lastPaymentDate").trim();
 
                         // Use the message template
                         String message_body = message_template.replace("{name}", cusName)
-                                .replace("{accountBalance}", accBal)
-                                .replace("{lastBillAmount}", billVal)
-                                .replace("{lastBillDate}", billReadDate)
+                                .replace("{accountBalance}", accBalFormatted)
                                 .replace("{lastPayment}", paymentAmt)
                                 .replace("{lastPaymentDate}", paymentReadDate)
                                 .replace("{fromNumber}", fromNumber)
