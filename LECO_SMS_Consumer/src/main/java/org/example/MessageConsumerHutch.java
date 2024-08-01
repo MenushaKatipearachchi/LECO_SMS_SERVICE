@@ -8,9 +8,7 @@ import okhttp3.*;
 import org.json.JSONObject;
 
 import javax.net.ssl.*;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateException;
 import java.util.Arrays;
@@ -27,11 +25,11 @@ public class MessageConsumerHutch {
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost("localhost");
 
-        List<String> testNumbers = Arrays.asList("+9471130681", "94711306818", "9471130681", "+94711306818",
-                "711306818",
+        List<String> testNumbers = Arrays.asList("94711306818", "9471130681", "+94711306818", "94756897621", "0756897621", "+94756897621", "0740531238", "94740531238", "+94740531238",
+                "711306818", "0717756869", "94717756869", "+94717756869",
                 "0711306818", "+94783227685", "94783227685", "783227685", "0783227685", "+94710168151", "94710168151",
                 "710168151", "0710168151", "+94770273653", "94770273653", "770273653", "0770273653", "94715356918",
-                "94706897233");
+                "94706897233", "0718144825", "94718144825", "+94718144825", "0742551906", "94742551906", "+94742551906", "0711572503", "94711572503", "+94711572503");
 
         // Login and get the access token
         System.out.println("Logging in...");
@@ -50,154 +48,183 @@ public class MessageConsumerHutch {
                     String fullMessage = new String(delivery.getBody(), StandardCharsets.UTF_8);
                     System.out.println("Received message: " + fullMessage);
 
-                    // Extract the message before the account number
+                    // Extract and process the message
                     String message = fullMessage.substring(0, fullMessage.indexOf("MOBILE:")).trim();
-
-                    // Check if "ACCOUNT_NO:" is present in fullMessage and so on...
                     int accountNoIndex = fullMessage.indexOf("ACCOUNT_NO:");
 
                     String mobileNumber;
-
                     if (accountNoIndex != -1) {
-                        // Extract mobile number from the message
-                        mobileNumber = fullMessage
-                                .substring(fullMessage.indexOf("MOBILE:") + 7, accountNoIndex).trim();
+                        mobileNumber = fullMessage.substring(fullMessage.indexOf("MOBILE:") + 7, accountNoIndex).trim();
                     } else {
-                        // Extract mobile number from the message
-                        mobileNumber = fullMessage
-                                .substring(fullMessage.indexOf("MOBILE:") + 7).trim();
+                        mobileNumber = fullMessage.substring(fullMessage.indexOf("MOBILE:") + 7).trim();
                     }
 
-                    // Check if the mobile number is one of the test numbers
                     if (testNumbers.contains(mobileNumber)) {
                         System.out.println("Mobile number is a test number. Sending SMS...");
-
-                        // Extract account number from the message if present
                         String accountNumber = accountNoIndex != -1 ? fullMessage.substring(accountNoIndex + 11).trim()
                                 : "";
-
-                        // Send SMS
                         sendSMS(message, mobileNumber, accountNumber, channel);
                     } else {
                         System.out.println("Mobile number is not a test number. Skipping SMS sending.");
                     }
-
-                    // Acknowledge the message
-                    System.out.println("Acknowledging message...");
-                    channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-                    System.out.println("Message acknowledged.");
                 } catch (Exception e) {
                     System.out.println("An error occurred while handling the delivery: " + e.getMessage());
                     e.printStackTrace();
+                    // Handle the exception (e.g., log it, requeue the message, etc.)
+                } finally {
+                    try {
+                        channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+                        System.out.println("Message acknowledged.");
+                    } catch (IOException ioException) {
+                        System.out.println("Failed to acknowledge message: " + ioException.getMessage());
+                        ioException.printStackTrace();
+                    }
                 }
             };
 
-            // Consume msg
+            // Start consuming messages
             System.out.println("Starting to consume messages from queue: " + Constants.SMS_OUTBOX);
             channel.basicConsume(Constants.SMS_OUTBOX, false, deliverCallback, consumerTag -> {
+                System.out.println("Consumer cancelled: " + consumerTag);
             });
 
-            System.out.println("Waiting for messages. To exit press Ctrl+C");
-            // Keep the program running to receive messages
-            new BufferedReader(new InputStreamReader(System.in)).readLine();
+            System.out.println("Waiting for messages. To exit, press Ctrl+C or send an interrupt signal.");
+
+            // Register a shutdown hook to gracefully close resources
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                System.out.println("Shutdown signal received. Closing resources...");
+                try {
+                    channel.close();
+                    connection.close();
+                } catch (Exception e) {
+                    System.out.println("Error occurred while closing resources: " + e.getMessage());
+                }
+            }));
+
+            // Keep the program running until interrupted
+            try {
+                Thread.currentThread().join();
+            } catch (InterruptedException e) {
+                System.out.println("Main thread interrupted.");
+            }
+
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     private static void sendSMS(String message, String mobileNumber, String accountNumber, Channel channel) {
-        try {
-            // Create OkHttpClient
-            OkHttpClient client = getUnsafeOkHttpClient1();
-
-            // Create JSON object for the request body
-            JSONObject jsonBody = new JSONObject();
-            jsonBody.put("campaignName", "Test campaign");
-            jsonBody.put("mask", "LECOTestH");
-            jsonBody.put("numbers", mobileNumber);
-            jsonBody.put("content", message);
-
-            // Create RequestBody
-            RequestBody body = RequestBody.create(MediaType.parse("application/json"), jsonBody.toString());
-
-            // Create Request
-            Request request = new Request.Builder()
-                    .url(Constants.HUTCH_SEND_SMS)
-                    .post(body)
-                    .addHeader("Authorization", "Bearer " + HUTCH_ACCESS_TOKEN)
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Accept", "*/*")
-                    .addHeader("X-API-VERSION", "v1")
-                    .build();
-
-            // Get the current date time when the SMS is being sent
-            DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
-            LocalDateTime currentDateTime = LocalDateTime.now();
-
-            // Send the request and get the response
-            Response response = client.newCall(request).execute();
-
-            // Get the current date time when the response is received
-            LocalDateTime sentDateTime = LocalDateTime.now();
-
-            System.out.println("Success response code " + response);
-
-            // Handle the response
-            if (response.isSuccessful()) {
-                // Parse the response body to get the serverRef
-                assert response.body() != null;
-                String responseBody = response.body().string();
-
-                if (!responseBody.isEmpty() && responseBody.startsWith("{")) {
-                    JSONObject jsonResponse = new JSONObject(responseBody);
-
-                    String serverRef = "";
-                    if (jsonResponse.has("serverRef")) {
-                        Object serverRefObject = jsonResponse.get("serverRef");
-                        serverRef = String.valueOf(serverRefObject);
+        int maxRetries = 5;  // maximum number of retries
+        int retryCount = 0;  // current retry count
+        int backoffTime = 1000;  // initial backoff time in milliseconds
+    
+        while (retryCount < maxRetries) {
+            try {
+                // Create OkHttpClient
+                OkHttpClient client = getUnsafeOkHttpClient1();
+    
+                // Create JSON object for the request body
+                JSONObject jsonBody = new JSONObject();
+                jsonBody.put("campaignName", "Test campaign");
+                jsonBody.put("mask", "LECOTestH");
+                jsonBody.put("numbers", mobileNumber);
+                jsonBody.put("content", message);
+    
+                // Create RequestBody
+                RequestBody body = RequestBody.create(MediaType.parse("application/json"), jsonBody.toString());
+    
+                // Create Request
+                Request request = new Request.Builder()
+                        .url(Constants.HUTCH_SEND_SMS)
+                        .post(body)
+                        .addHeader("Authorization", "Bearer " + HUTCH_ACCESS_TOKEN)
+                        .addHeader("Content-Type", "application/json")
+                        .addHeader("Accept", "*/*")
+                        .addHeader("X-API-VERSION", "v1")
+                        .build();
+    
+                // Get the current date time when the SMS is being sent
+                DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
+                LocalDateTime currentDateTime = LocalDateTime.now();
+    
+                // Send the request and get the response
+                Response response = client.newCall(request).execute();
+    
+                // Get the current date time when the response is received
+                LocalDateTime sentDateTime = LocalDateTime.now();
+    
+                System.out.println("Success response code " + response);
+    
+                // Handle the response
+                if (response.isSuccessful()) {
+                    // Parse the response body to get the serverRef
+                    assert response.body() != null;
+                    String responseBody = response.body().string();
+    
+                    if (!responseBody.isEmpty() && responseBody.startsWith("{")) {
+                        JSONObject jsonResponse = new JSONObject(responseBody);
+    
+                        String serverRef = "";
+                        if (jsonResponse.has("serverRef")) {
+                            Object serverRefObject = jsonResponse.get("serverRef");
+                            serverRef = String.valueOf(serverRefObject);
+                        }
+    
+                        // Prepare data for the new queue
+                        String dataForNewQueue = "message: " + message + ", mobile number: " + mobileNumber
+                                + ", status code: "
+                                + response.code() + ", account number: " + accountNumber + ", sent date time: "
+                                + dtf.format(sentDateTime) + ", current date time: " + dtf.format(currentDateTime)
+                                + ", serverRef: "
+                                + serverRef;
+    
+                        // Declare a new queue to store the response
+                        String DB_WRITE_QUEUE = "db_write_queue";
+                        channel.queueDeclare(DB_WRITE_QUEUE, true, false, false, null);
+    
+                        // Publish the data to the new queue
+                        channel.basicPublish("", DB_WRITE_QUEUE, null, dataForNewQueue.getBytes(StandardCharsets.UTF_8));
+                        System.out.println("Data published to database write queue: " + dataForNewQueue);
+                    } else {
+                        System.out.println("Invalid or empty JSON response.");
                     }
-
-                    // Prepare data for the new queue
-                    String dataForNewQueue = "message: " + message + ", mobile number: " + mobileNumber
-                            + ", status code: "
-                            + response.code() + ", account number: " + accountNumber + ", sent date time: "
-                            + dtf.format(sentDateTime) + ", current date time: " + dtf.format(currentDateTime)
-                            + ", serverRef: "
-                            + serverRef;
-
-                    // Declare a new queue to store the response
-                    String DB_WRITE_QUEUE = "db_write_queue";
-                    channel.queueDeclare(DB_WRITE_QUEUE, true, false, false, null);
-
-                    // Publish the data to the new queue
-                    channel.basicPublish("", DB_WRITE_QUEUE, null, dataForNewQueue.getBytes(StandardCharsets.UTF_8));
-                    System.out.println("Data published to database write queue: " + dataForNewQueue);
+                    break;  // exit the retry loop if the request was successful
+                } else if (response.code() == 401) {
+                    // If token renewal failed due to Unauthorized, call refreshAccessToken API to retrieve fresh tokens
+                    String newAccessToken = refreshAccessToken(HUTCH_TOKEN_REFRESH);
+    
+                    if (newAccessToken != null) {
+                        // Retry sending SMS with the new access token
+                        sendSMS(message, mobileNumber, accountNumber, channel);
+                    } else {
+                        System.out.println("Failed to refresh access token. Re login...");
+                        login();
+                        System.out.println("Logged in successfully. Retrying sending SMS...");
+                        sendSMS(message, mobileNumber, accountNumber, channel);
+                        System.out.println("SMS sent successfully.");
+                    }
+                    break;  // exit the retry loop if a new access token was obtained
+                } else if (response.code() == 429) {
+                    // Handle rate limiting by retrying with exponential backoff
+                    System.out.println("Rate limit exceeded. Retrying in " + backoffTime + "ms...");
+                    Thread.sleep(backoffTime);
+                    retryCount++;
+                    backoffTime *= 2;  // double the backoff time for the next retry
                 } else {
-                    System.out.println("Invalid or empty JSON response.");
+                    System.out.println("SMS not sent. Response code: " + response.code());
+                    System.exit(1);
                 }
-            } else if (response.code() == 401) {
-                // If token renewal failed due to Unauthorized, call refreshAccessToken API to
-                // retrieve fresh tokens
-                String newAccessToken = refreshAccessToken(HUTCH_TOKEN_REFRESH);
-
-                if (newAccessToken != null) {
-                    // Retry sending SMS with the new access token
-                    sendSMS(message, mobileNumber, accountNumber, channel);
-                } else {
-                    System.out.println("Failed to refresh access token. Re login...");
-                    login();
-                    System.out.println("Logged in successfully. Retrying sending SMS...");
-                    sendSMS(message, mobileNumber, accountNumber, channel);
-                    System.out.println("SMS sent successfully.");
-                }
-            } else {
-                System.out.println("SMS not sent. Response code: " + response.code());
+            } catch (Exception e) {
+                e.printStackTrace();
                 System.exit(1);
             }
-        } catch (Exception e) {
-            e.printStackTrace();
         }
-    }
+    
+        if (retryCount == maxRetries) {
+            System.out.println("Exceeded maximum number of retries. SMS not sent.");
+            System.exit(1);
+        }
+    }    
 
     private static void login() {
         OkHttpClient client = getUnsafeOkHttpClient1();

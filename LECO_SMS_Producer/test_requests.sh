@@ -1,10 +1,16 @@
 #!/bin/bash
 
-for i in {1..100}
+for i in {1..1000}
 do
+   if (( RANDOM % 2 )); then
+      body="UTD 0301398603"
+   else
+      body="CTY"
+   fi
+
    curl -X POST -H "Content-Type: application/json" -d '{
-    "from": "0787165415",
+    "from": "94711572503",
     "to": "1910",
-    "body": "ACB 0309937309"
-}' http://127.0.0.1:8000/smsapi/
+    "body": "'"$body"'"
+}' http://10.10.150.43:8000/smsapi/
 done
