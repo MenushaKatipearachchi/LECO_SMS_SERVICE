@@ -4,26 +4,17 @@ import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
-import okhttp3.*;
-import org.json.JSONObject;
 
-import javax.net.ssl.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.security.cert.CertificateException;
 import java.util.Arrays;
 import java.util.List;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 public class MessageConsumerHutch {
 
-    private static String HUTCH_TOKEN_REFRESH;
-    private static String HUTCH_ACCESS_TOKEN;
-
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost("localhost");
 
@@ -37,21 +28,22 @@ public class MessageConsumerHutch {
 
         // Login and get the access token
         System.out.println("Logging in...");
-        login();
+        HutchService hutchService = new HutchService();
+        hutchService.login();
         System.out.println("Logged in successfully.");
 
         try (Connection connection = factory.newConnection();
-                Channel channel = connection.createChannel()) {
+             Channel channel = connection.createChannel()) {
             System.out.println("Declaring queue: " + Constants.SMS_OUTBOX);
             channel.queueDeclare(Constants.SMS_OUTBOX, true, false, false, null);
             System.out.println("Queue declared successfully.");
 
             // Set up the consumer
             DeliverCallback deliverCallback = (consumerTag, delivery) -> {
-                try {
-                    String fullMessage = new String(delivery.getBody(), StandardCharsets.UTF_8);
-                    System.out.println("Received message: " + fullMessage);
+                String fullMessage = new String(delivery.getBody(), StandardCharsets.UTF_8);
+                System.out.println("Received message: " + fullMessage);
 
+                try {
                     // Extract the message before the account number
                     String message = fullMessage.substring(0, fullMessage.indexOf("MOBILE:")).trim();
 
@@ -79,7 +71,7 @@ public class MessageConsumerHutch {
                                 : "";
 
                         // Send SMS
-                        sendSMS(message, mobileNumber, accountNumber, channel);
+                        hutchService.sendSMS(message, mobileNumber, accountNumber, channel);
                     } else {
                         System.out.println("Mobile number is not a test number. Skipping SMS sending.");
                     }
@@ -91,6 +83,13 @@ public class MessageConsumerHutch {
                 } catch (Exception e) {
                     System.out.println("An error occurred while handling the delivery: " + e.getMessage());
                     e.printStackTrace();
+                    try {
+                        // Nack the message and requeue it
+                        channel.basicNack(delivery.getEnvelope().getDeliveryTag(), false, true);
+                    } catch (IOException ioException) {
+                        System.out.println("Failed to nack the message: " + ioException.getMessage());
+                        ioException.printStackTrace();
+                    }
                 }
             };
 
@@ -104,234 +103,6 @@ public class MessageConsumerHutch {
             new BufferedReader(new InputStreamReader(System.in)).readLine();
         } catch (Exception e) {
             e.printStackTrace();
-        }
-    }
-
-    private static void sendSMS(String message, String mobileNumber, String accountNumber, Channel channel) {
-        try {
-            // Create OkHttpClient
-            OkHttpClient client = getUnsafeOkHttpClient1();
-
-            // Create JSON object for the request body
-            JSONObject jsonBody = new JSONObject();
-            jsonBody.put("campaignName", "Test campaign");
-            jsonBody.put("mask", "LECOTestH");
-            jsonBody.put("numbers", mobileNumber);
-            jsonBody.put("content", message);
-
-            // Create RequestBody
-            RequestBody body = RequestBody.create(MediaType.parse("application/json"), jsonBody.toString());
-
-            // Create Request
-            Request request = new Request.Builder()
-                    .url(Constants.HUTCH_SEND_SMS)
-                    .post(body)
-                    .addHeader("Authorization", "Bearer " + HUTCH_ACCESS_TOKEN)
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Accept", "*/*")
-                    .addHeader("X-API-VERSION", "v1")
-                    .build();
-
-            // Get the current date time when the SMS is being sent
-            DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
-            LocalDateTime currentDateTime = LocalDateTime.now();
-
-            // Send the request and get the response
-            Response response = client.newCall(request).execute();
-
-            // Get the current date time when the response is received
-            LocalDateTime sentDateTime = LocalDateTime.now();
-
-            System.out.println("Success response code " + response);
-
-            // Handle the response
-            if (response.isSuccessful()) {
-                // Parse the response body to get the serverRef
-                assert response.body() != null;
-                String responseBody = response.body().string();
-
-                if (!responseBody.isEmpty() && responseBody.startsWith("{")) {
-                    JSONObject jsonResponse = new JSONObject(responseBody);
-
-                    String serverRef = "";
-                    if (jsonResponse.has("serverRef")) {
-                        Object serverRefObject = jsonResponse.get("serverRef");
-                        serverRef = String.valueOf(serverRefObject);
-                    }
-
-                    // Prepare data for the new queue
-                    String dataForNewQueue = "message: " + message + ", mobile number: " + mobileNumber
-                            + ", status code: "
-                            + response.code() + ", account number: " + accountNumber + ", sent date time: "
-                            + dtf.format(sentDateTime) + ", current date time: " + dtf.format(currentDateTime)
-                            + ", serverRef: "
-                            + serverRef;
-
-                    // Declare a new queue to store the response
-                    String DB_WRITE_QUEUE = "db_write_queue";
-                    channel.queueDeclare(DB_WRITE_QUEUE, true, false, false, null);
-
-                    // Publish the data to the new queue
-                    channel.basicPublish("", DB_WRITE_QUEUE, null, dataForNewQueue.getBytes(StandardCharsets.UTF_8));
-                    System.out.println("Data published to database write queue: " + dataForNewQueue);
-                } else {
-                    System.out.println("Invalid or empty JSON response.");
-                }
-            } else if (response.code() == 401) {
-                // If token renewal failed due to Unauthorized, call refreshAccessToken API to
-                // retrieve fresh tokens
-                String newAccessToken = refreshAccessToken(HUTCH_TOKEN_REFRESH);
-
-                if (newAccessToken != null) {
-                    // Retry sending SMS with the new access token
-                    sendSMS(message, mobileNumber, accountNumber, channel);
-                } else {
-                    System.out.println("Failed to refresh access token. Re login...");
-                    login();
-                    System.out.println("Logged in successfully. Retrying sending SMS...");
-                    sendSMS(message, mobileNumber, accountNumber, channel);
-                    System.out.println("SMS sent successfully.");
-                }
-            } else if (response.code() == 429) {
-                // Ignoring the 429 (too many requests)
-                System.out.println("Request limit exceeded. Ignoring message and continuing.");
-                sendSMS(message, mobileNumber, accountNumber, channel);
-            } else {
-                System.out.println("SMS not sent. Response code: " + response.code());
-                System.exit(1);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    private static void login() {
-        OkHttpClient client = getUnsafeOkHttpClient1();
-
-        // Constructing the request body with username and password
-        RequestBody requestBody = RequestBody.create(MediaType.parse("application/json"),
-                "{\"username\": \"" + "ekettipearachchi@gmail.com" + "\", \"password\": \"" + "cp@^68CM" + "\"}");
-
-        // Build the request with appropriate headers and body
-        Request request = new Request.Builder()
-                .url(Constants.HUTCH_LOGIN)
-                .post(requestBody)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Accept", "*/*")
-                .addHeader("X-API-VERSION", "v1")
-                .build();
-
-        try {
-            // Execute the request and handle the response
-            Response response = client.newCall(request).execute();
-            if (response.isSuccessful()) {
-                // Parse the response body to extract the access token and refresh token
-                assert response.body() != null;
-                String responseBody = response.body().string();
-                JSONObject json = new JSONObject(responseBody);
-
-                HUTCH_ACCESS_TOKEN = json.getString("accessToken");
-                HUTCH_TOKEN_REFRESH = json.getString("refreshToken");
-            } else if (response.code() == 401) {
-                // Login failed due to Unauthorized, call login API to retrieve fresh tokens
-                System.exit(1);
-            } else {
-                System.exit(1);
-            }
-            response.body().close();
-        } catch (IOException e) {
-            // Handle IOException
-            System.exit(1);
-        }
-    }
-
-    private static String refreshAccessToken(String refreshToken) {
-        OkHttpClient client = getUnsafeOkHttpClient1();
-
-        // Build the request URL with the refresh token
-        HttpUrl url = HttpUrl.parse(Constants.HUTCH_REFRESH_ACCESS_TOKEN).newBuilder()
-                .build();
-
-        // Build the request with appropriate headers
-        Request request = new Request.Builder()
-                .url(url)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Accept", "*/*")
-                .addHeader("X-API-VERSION", "v1")
-                .addHeader("Authorization", "Bearer " + refreshToken)
-                .build();
-
-        try {
-            // Execute the request and handle the response
-            Response response = client.newCall(request).execute();
-
-            if (response.isSuccessful()) {
-                // Parse the response body to extract the new access token
-                assert response.body() != null;
-                String responseBody = response.body().string();
-                JSONObject json = new JSONObject(responseBody);
-
-                String newAccessToken = json.getString("accessToken");
-
-                HUTCH_ACCESS_TOKEN = newAccessToken;
-
-                response.body().close();
-
-                // Store or use the new access token as needed
-                return newAccessToken;
-            } else if (response.code() == 401) {
-                // If token renewal failed due to Unauthorized, call login API to retrieve fresh
-                // tokens
-                System.out.println("Token renewal failed due to Unauthorized. Retrieving fresh tokens...");
-                return null;
-            } else {
-                // Handle other error responses
-                System.exit(1);
-                return null;
-            }
-        } catch (IOException e) {
-            // Handle IOException
-            System.exit(1);
-            return null;
-        }
-    }
-
-    private static OkHttpClient getUnsafeOkHttpClient1() {
-        try {
-            // Create a trust manager that does not validate certificate chains
-            final TrustManager[] trustAllCerts = new TrustManager[] { new X509TrustManager() {
-                @Override
-                public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType)
-                        throws CertificateException {
-                }
-
-                @Override
-                public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType)
-                        throws CertificateException {
-                }
-
-                @Override
-                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-                    return new java.security.cert.X509Certificate[] {};
-                }
-            } };
-
-            // Install the all-trusting trust manager
-            final SSLContext sslContext = SSLContext.getInstance("SSL");
-            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
-            // Create an ssl socket factory with our all-trusting manager
-            final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
-
-            return new OkHttpClient.Builder()
-                    .sslSocketFactory(sslSocketFactory, (X509TrustManager) trustAllCerts[0])
-                    .hostnameVerifier(new HostnameVerifier() {
-                        @Override
-                        public boolean verify(String hostname, SSLSession session) {
-                            return true;
-                        }
-                    }).build();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 }
